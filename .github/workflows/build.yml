@@ -1,0 +1,62 @@
+name: Build APK
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Check setup.py
+        run: |
+          python3 -m py_compile setup.py
+          echo "setup.py 语法 OK"
+
+      - name: Generate project files
+        run: |
+          python3 setup.py
+          test -f settings.gradle
+          test -f app/build.gradle
+          test -f app/src/main/AndroidManifest.xml
+          test -f app/src/main/aidl/com/gametap/assistant/IInjectorService.aidl
+          test -f app/src/main/java/com/gametap/assistant/FloatingService.java
+          test -f app/src/main/java/com/gametap/assistant/MainActivity.java
+          test -f app/src/main/res/values/themes.xml
+          echo "工程文件生成完整 OK"
+
+      - name: Set up Android SDK
+        run: |
+          SDKM=""
+          if [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          else
+            mkdir -p "$HOME/android-sdk/cmdline-tools"
+            curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip || curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+            unzip -q /tmp/clt.zip -d "$HOME/android-sdk/cmdline-tools"
+            [ -d "$HOME/android-sdk/cmdline-tools/latest" ] || mv "$HOME/android-sdk/cmdline-tools/cmdline-tools" "$HOME/android-sdk/cmdline-tools/latest"
+            SDKM="$HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager"
+            echo "ANDROID_HOME=$HOME/android-sdk" >> "$GITHUB_ENV"
+          fi
+          yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+          "$SDKM" --install "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1 || true
+          "$SDKM" --list_installed 2>/dev/null | head -20 || true
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameTap-debug
+          path: app/build/outputs/apk/debug/*.apk
